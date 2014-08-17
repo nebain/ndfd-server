@@ -6,15 +6,22 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)) + '/lib')
 from flask import Flask, abort
 from pysky import grib2
 from threading import Lock
-import random, re, shutil, string
+import argparse, random, re, shutil, string
+
+parser = argparse.ArgumentParser(description='Runs an NDFD server.')
+parser.add_argument('--data', dest='data', required=True, help='Path to directory where local NDFD cache will be maintained.')
+parser.add_argument('--degrib', dest='degrib', default='/usr/local/bin/degrib', help='Location of degrib executable. Default is %(default)s')
+parser.add_argument('--geodata', dest='geodata', default='/usr/local/share/degrib/geodata', help='Location of degrib geodata directory. Default is %(default)s')
+
+args = parser.parse_args()
 
 grib2.degrib_path = '/usr/local/bin/degrib'
 grib2.noaa_params = ['maxt', 'mint', 'wspd', 'wdir']
-grib2.geodata_path = '/usr/local/share/degrib/geodata'
+grib2.geodata_path = args.geodata
 
 mutex = Lock()
 downloading_mutex = Lock()
-download_base = '/home/nebain/ndfd/auto/'
+download_base = args.data
 download_dir = download_base + '/active'
 
 def get_new_download_dir():
@@ -78,6 +85,5 @@ def update_cache():
 
 if __name__ == '__main__':
 	print "Updating local NDFD file cache..."
-	new_download_dir = get_new_download_dir()
-	new_files = grib2.download(download_dir, new_download_dir)
+	update_cache()
 	app.run(host='0.0.0.0', threaded=True)#, port=80)

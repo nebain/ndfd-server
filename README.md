@@ -1,0 +1,1 @@
+Documentation will eventually come. For now, run app.py --help to see a list of arguments. Call localhost:5000/update_cache to update the cache (this is done once on initial run). Call localhost:5000/forecast/35.53/-90.53/maxt,mint to get mint and maxt at lat 35.53, lon -90.53.
