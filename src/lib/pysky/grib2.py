@@ -36,8 +36,8 @@ def download(data_dir, new_data_dir=None):
     args:
         data_dir     Old directory containing existing data files
         new_data_dir Directory to save new data files. This will only be
-                     created if files are downloaded. The old data_dir
-                     may be removed after calling this function. Pass
+                     created if files are downloaded. You may remove the
+                     old data_dir after calling this function. Pass
                      None to indicate files shall be updated in-place.
     returns:
         True if new files were downloaded, False otherwise
@@ -63,7 +63,7 @@ def download(data_dir, new_data_dir=None):
 
         # Get directory listing so we can see if we need a newer version
         url = urllib2.urlopen("{0}/{1}/ls-l".format(base_url, dir))
-	for line in url:
+        for line in url:
             # Check file modified date if this is a .bin file
             if line.find(".bin") != -1:
 
@@ -126,14 +126,20 @@ def download(data_dir, new_data_dir=None):
         utils.info('No files downloaded - skipping cube')
     return files_downloaded
 
-def xml(data_dir, latitude, longitude, params=None):
+def xml(data_dir, latitude, longitude, elements=None, product='time-series', begin=None, end=None):
     """
-    Generate XML file from grib2 data cube
+    Generate XML file from grib2 data cube. Arguments are similar to what is
+    expected in the NWS NDFD REST API for the ndfdXMLclient.php interface:
+    http://graphical.weather.gov/xml/rest.php
 
     args:
-        data_dir - Directory where grib2 data cube is located
-        latitude - Latitude
-        longitude - Longitude
+        data_dir - Directory where grib2 data cube is located (required)
+        latitude - Latitude (required)
+        longitude - Longitude (required)
+        elements - List of elements, or None to return all params
+        product - time-series or glance
+        begin - begin time, or None to mean beginning of available period
+        end - end time, or None to mean end of available period
 
     returns - xml string
     """
@@ -143,10 +149,59 @@ def xml(data_dir, latitude, longitude, params=None):
     geodata = geodata_path if geodata_path else data_dir + '/geodata'
 
     # build and execute command
-    cmd = "{degrib_path} {data_dir}/all.ind -DP -pnt {latitude},{longitude} -XML 1 -geoData {geodata}".format(
-        data_dir = data_dir, latitude = latitude, longitude = longitude, degrib_path = degrib_path, geodata=geodata)
-    if params:
-        cmd += " -ndfdConven 1 -ndfdVars " + ",".join(params)
+    cmd = "{degrib_path} {data_dir}/all.ind -DP -pnt {latitude},{longitude} -geoData {geodata}".format(
+        degrib_path=degrib_path, data_dir=data_dir,
+        latitude=latitude, longitude=longitude,
+        geodata=geodata)
+    if product == "time-series":
+        cmd += " -XML 1"
+        if elements:
+            cmd += " -ndfdConven 1 -ndfdVars " + ",".join(elements)
+    elif product == "glance":
+        cmd += " -XML 2"
+
+    if begin:
+        cmd += " -startTime " + begin
+    if end:
+        cmd += " -endTime " + end
+
+    utils.info(cmd)
+    xml = ""
+    for line in os.popen(cmd).readlines():
+
+        xml += line
+
+    # return output
+    return xml
+
+def xml_byday(data_dir, latitude, longitude, format='12 hourly'):
+    """
+    Generate XML file from grib2 data cube. Arguments are similar to what is
+    expected in the NWS NDFD REST API for the ndfdBrowserClientByDay.php interface:
+    http://graphical.weather.gov/xml/rest.php
+
+    args:
+        data_dir - Directory where grib2 data cube is located (required)
+        latitude - Latitude (required)
+        longitude - Longitude (required)
+        format - "12 hourly" or "24 hourly"
+
+    returns - xml string
+    """
+
+    import os
+
+    geodata = geodata_path if geodata_path else data_dir + '/geodata'
+
+    # build and execute command
+    cmd = "{degrib_path} {data_dir}/all.ind -DP -pnt {latitude},{longitude} -geoData {geodata}".format(
+        degrib_path=degrib_path, data_dir=data_dir,
+        latitude=latitude, longitude=longitude,
+        geodata=geodata)
+    if format == "12 hourly":
+        cmd += " -XML 3"
+    elif format == "24 hourly":
+        cmd += " -XML 4"
 
     utils.info(cmd)
     xml = ""

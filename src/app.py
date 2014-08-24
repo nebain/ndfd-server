@@ -3,10 +3,12 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)) + '/lib')
 
-from flask import Flask, abort
-from pysky import grib2
+from flask import Flask, abort, request
+from pysky import grib2, utils
 from threading import Lock
 import argparse, random, re, shutil, string
+
+utils.verbose = True
 
 parser = argparse.ArgumentParser(description='Runs an NDFD server.')
 parser.add_argument('--data', dest='data', required=True, help='Path to directory where local NDFD cache will be maintained.')
@@ -15,8 +17,11 @@ parser.add_argument('--geodata', dest='geodata', default='/usr/local/share/degri
 
 args = parser.parse_args()
 
-grib2.degrib_path = '/usr/local/bin/degrib'
-grib2.noaa_params = ['maxt', 'mint', 'wspd', 'wdir']
+grib2.degrib_path = args.degrib
+grib2.noaa_params = 'ALL'
+#grib2.noaa_params = ['maxt', 'mint', 'temp']
+grib2.base_url = 'http://weather.noaa.gov/pub/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.splains/'
+#grib2.base_url = 'http://weather.noaa.gov/pub/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.conus/'
 grib2.geodata_path = args.geodata
 
 mutex = Lock()
@@ -24,32 +29,99 @@ downloading_mutex = Lock()
 download_base = args.data
 download_dir = download_base + '/active'
 
+app = Flask(__name__)
+
+
+
 def get_new_download_dir():
 	rnd = ''.join(random.choice(string.ascii_letters + string.digits) for i in range(10))
 	return download_base + '/' + rnd
 
-app = Flask(__name__)
 
-@app.route('/forecast/<lat>/<lon>', defaults={'params': None})
-@app.route('/forecast/<lat>/<lon>/<params>')
-def forecast(lat, lon, params):
+
+@app.route('/ndfdXmlclient')
+def ndfdXmlclient():
 	try:
-		lat = float(lat)
-		lon = float(lon)
-		params_array = []
-		if params:
-			for p in params.split(','):
-				if re.search(r'^[\w-]+$', p):
-					params_array.append(p)
-		if len(params_array) == 0:
-			params_array = None
-		mutex.acquire()
-		result = grib2.xml(download_dir, lat, lon, params_array)
-		mutex.release()
+		# defaults
+		product = 'time-series'
+		begin = end = None
+		elements = []
+		for key, val in request.args.iteritems():
+			key = key.lower()
+			if key == 'lat':
+				lat = float(val)
+			elif key == 'lon':
+				lon = float(val)
+			elif key == 'product':
+				if valid_product(val.lower()):
+					product = val.lower()
+			elif key == 'begin':
+				if valid_datetime(val.upper()):
+					begin = val.upper()
+			elif key == 'end':
+				if valid_datetime(val.upper()):
+					end = val.upper()
+			elif key == 'elements':
+				elements = [e for e in val.lower().split(',') if valid_element(e)]
+
+		if len(elements) == 0:
+			elements = None
+		with mutex:
+			result = grib2.xml(download_dir, lat, lon, elements=elements, product=product, begin=begin, end=end)
 		return result
 	except:
-		mutex.release()
 		abort(400)
+
+
+
+@app.route('/ndfdBrowserClientByDay')
+def ndfdBrowserClientByDay():
+	try:
+		# defaults
+		format = '12 hourly'
+		for key, val in request.args.iteritems():
+			key = key.lower()
+			if key == 'lat':
+				lat = float(val)
+			elif key == 'lon':
+				lon = float(val)
+			elif key == 'format':
+				if valid_format(val.lower()):
+					format = val.lower()
+
+		with mutex:
+			result = grib2.xml_byday(download_dir, lat, lon, format=format)
+		return result
+	except:
+		raise
+		abort(400)
+
+
+
+def valid_product(subject):
+	return subject == 'time-series' or subject == 'glance'
+
+
+
+def valid_format(subject):
+	return re.match(r'^(12|24) hourly$', subject)
+
+
+
+def valid_date(subject):
+	return re.match(r'^\d\d\d\d-\d\d-\d\d$', subject)
+
+
+
+def valid_datetime(subject):
+	return re.match(r'^\d\d\d\d-\d\d-\d\dT\d\d:\d\d$', subject)
+
+
+
+def valid_element(subject):
+	return re.match(r'^[\w-]{2,15}$', subject)
+
+
 
 @app.route('/update_cache')
 def update_cache():
@@ -83,7 +155,9 @@ def update_cache():
 	else:
 		return ('Success - no update needed.', 304)
 
+
+
 if __name__ == '__main__':
 	print "Updating local NDFD file cache..."
 	update_cache()
-	app.run(host='0.0.0.0', threaded=True)#, port=80)
+	app.run(host='0.0.0.0', threaded=True)
