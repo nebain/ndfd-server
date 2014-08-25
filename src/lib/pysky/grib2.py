@@ -61,44 +61,72 @@ def download(data_dir, new_data_dir=None):
 
         utils.info('\nChecking directory {0}'.format(dir))
 
-        # Get directory listing so we can see if we need a newer version
-        url = urllib2.urlopen("{0}/{1}/ls-l".format(base_url, dir))
-        for line in url:
+        # To save time, first check to see whether the directory listing file
+        # itself was updated.
+        check_local_path = "{0}/{1}/{2}".format(data_dir, dir, "ls-l")
+        save_local_path = "{0}/{1}/{2}".format(new_data_dir, dir, "ls-l")
+        ls_local_time = os.stat(check_local_path).st_mtime if os.path.exists(check_local_path) else 0
+        utils.info("Local: {0} last modified {1}".format(check_local_path, ls_local_time))
+
+        ls_request = urllib2.urlopen("{0}/{1}/ls-l".format(base_url, dir))
+        last_modified_str = ls_request.info()['Last-Modified']
+        ls_remote_time = _utc2local(parse(last_modified_str))
+        utils.info("Remote: {0} last modified {1}".format("ls-l", ls_remote_time))
+
+        # If it was, download it and save it to the new directory
+        ls_downloaded = False
+        if not os.path.exists(check_local_path) or ls_local_time < ls_remote_time:
+            ls_downloaded = True
+            utils.info("Saving new ls-l file")
+            if not os.path.exists(new_data_subdir):
+                os.makedirs(new_data_subdir)
+            _download_file(ls_request, save_local_path)
+            os.utime(save_local_path, (ls_remote_time, ls_remote_time))
+            files_downloaded = True
+            ls_file = save_local_path
+        else: # If not, remember it to be copied into new directory later if needed
+            files_to_copy.append((check_local_path, save_local_path))
+            ls_file = check_local_path
+
+        # Loop over each file in the directory listing
+        for line in open(ls_file):
             # Check file modified date if this is a .bin file
             if line.find(".bin") != -1:
-
+ 
                 # Split line to get date and filename
                 month, day, rtime, filename = re.split("\s+", line)[5:9]
-
+ 
                 # Split filename to get noaa param name
                 param = filename.split('.')[1]
-
+ 
                 # Only download files if we are interested in this parameter
                 if noaa_params == 'ALL' or param in noaa_params:
-
+ 
                     # Local path and time
                     check_local_path = "{0}/{1}/{2}".format(data_dir, dir, filename)
                     save_local_path = "{0}/{1}/{2}".format(new_data_dir, dir, filename)
-                    local_time = os.stat(check_local_path).st_mtime if os.path.exists(check_local_path) else 0
-                    utils.info("Local: {0} last modified {1}".format(check_local_path, local_time))
 
-                    # Remote path and time
-                    remote_path = "{0}/{1}/{2}".format(base_url, dir, filename)
-                    request = urllib2.urlopen(remote_path)
-                    last_modified_str = request.info()['Last-Modified']
-                    remote_time = _utc2local(parse(last_modified_str))
-                    utils.info("Remote: {0} last modified {1}".format(remote_path, remote_time))
-
-                    # If file does not exist or the local file is older than the remote file, download
-                    if not os.path.exists(check_local_path) or local_time < remote_time:
-                        utils.info('Downloading remote file {0}'.format(remote_path))
-                        if not os.path.exists(new_data_subdir):
-                            os.makedirs(new_data_subdir)
-                        _download_file(request, save_local_path)
-                        os.utime(save_local_path, (remote_time, remote_time))
-                        files_downloaded = True
-                    # Otherwise, remember this file for if it needs to be copied later
-                    else:
+                    if ls_downloaded: # Only bother checking if we downloaded a new ls file
+                        local_time = os.stat(check_local_path).st_mtime if os.path.exists(check_local_path) else 0
+                        utils.info("Local: {0} last modified {1}".format(check_local_path, local_time))
+ 
+                        # Remote path and time
+                        remote_path = "{0}/{1}/{2}".format(base_url, dir, filename)
+                        request = urllib2.urlopen(remote_path)
+                        last_modified_str = request.info()['Last-Modified']
+                        remote_time = _utc2local(parse(last_modified_str))
+                        utils.info("Remote: {0} last modified {1}".format(remote_path, remote_time))
+ 
+		        # If file does not exist or the local file is older than the remote file, download
+                        if not os.path.exists(check_local_path) or local_time < remote_time:
+                            utils.info('Downloading remote file {0}'.format(remote_path))
+                            _download_file(request, save_local_path)
+                            os.utime(save_local_path, (remote_time, remote_time))
+                            files_downloaded = True
+                        else: # Otherwise, remember this file for if it needs to be copied later
+                            files_to_copy.append((check_local_path, save_local_path))
+                            utils.info('Local file is up-to-date, skipping download')
+                    else: # ls was not downloaded, so just remember the files for later copying if needed
                         files_to_copy.append((check_local_path, save_local_path))
                         utils.info('Local file is up-to-date, skipping download')
                     

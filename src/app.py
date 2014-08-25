@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)) + '/lib')
 from flask import Flask, abort, request
 from pysky import grib2
 import threading
-import argparse, random, re, shutil, string
+import argparse, random, re, shutil, string, sys
 
 parser = argparse.ArgumentParser(description='Runs an NDFD server.')
 parser.add_argument('--data', dest='data', required=True, help='Path to directory where local NDFD cache will be maintained.')
@@ -20,6 +20,7 @@ grib2.degrib_path = args.degrib
 grib2.base_url = 'http://weather.noaa.gov/pub/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.{}/'.format(args.sector)
 grib2.geodata_path = args.geodata
 grib2.noaa_params = 'ALL'
+ndfd_grib_check_interval = 300
 
 mutex = threading.Lock()
 downloading_mutex = threading.Lock()
@@ -90,7 +91,6 @@ def ndfdBrowserClientByDay():
 			result = grib2.xml_byday(download_dir, lat, lon, format=format)
 		return result
 	except:
-		raise
 		abort(400)
 
 
@@ -154,7 +154,24 @@ def update_cache():
 
 
 
+def update_cache_timer():
+	try:
+		print "Automated NDFD grib update begin."
+		msg, code = update_cache()
+		sys.stdout.write("Automated NDFD grib update completed. ")
+		if code == 200:
+			print "New files downloaded."
+		else:
+			print "No new files."
+	except:
+		print "Automated NDFD grib update failed."
+
+	update_timer = threading.Timer(ndfd_grib_check_interval, update_cache_timer)
+	update_timer.daemon = True
+	update_timer.start()
+
+
+
 if __name__ == '__main__':
-	print "Updating local NDFD file cache..."
-	update_cache()
+	update_cache_timer()
 	app.run(host='0.0.0.0', threaded=True)
