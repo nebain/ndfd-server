@@ -4,28 +4,25 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)) + '/lib')
 
 from flask import Flask, abort, request
-from pysky import grib2, utils
-from threading import Lock
+from pysky import grib2
+import threading
 import argparse, random, re, shutil, string
-
-utils.verbose = True
 
 parser = argparse.ArgumentParser(description='Runs an NDFD server.')
 parser.add_argument('--data', dest='data', required=True, help='Path to directory where local NDFD cache will be maintained.')
 parser.add_argument('--degrib', dest='degrib', default='/usr/local/bin/degrib', help='Location of degrib executable. Default is %(default)s')
 parser.add_argument('--geodata', dest='geodata', default='/usr/local/share/degrib/geodata', help='Location of degrib geodata directory. Default is %(default)s')
+parser.add_argument('--sector', dest='sector', default='conus', help='Sector to use. Default is %(default)s. Specify a smaller region to reduce disk usage and to reduce update processing time. See http://www.nws.noaa.gov/ndfd/anonymous_ftp.htm for a list of available sectors.')
 
 args = parser.parse_args()
 
 grib2.degrib_path = args.degrib
-grib2.noaa_params = 'ALL'
-#grib2.noaa_params = ['maxt', 'mint', 'temp']
-grib2.base_url = 'http://weather.noaa.gov/pub/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.splains/'
-#grib2.base_url = 'http://weather.noaa.gov/pub/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.conus/'
+grib2.base_url = 'http://weather.noaa.gov/pub/SL.us008001/ST.opnl/DF.gr2/DC.ndfd/AR.{}/'.format(args.sector)
 grib2.geodata_path = args.geodata
+grib2.noaa_params = 'ALL'
 
-mutex = Lock()
-downloading_mutex = Lock()
+mutex = threading.Lock()
+downloading_mutex = threading.Lock()
 download_base = args.data
 download_dir = download_base + '/active'
 
